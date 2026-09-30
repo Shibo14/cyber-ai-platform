@@ -56,6 +56,15 @@ Architecture v2 decisions are documented in [`docs/DECISIONS.md`](docs/DECISIONS
 
 MVP exclusions: advanced anti-VM evasion, autonomous destructive response, local inference/local production sandbox, and full air-gapped deployment. Detailed parameters and product-level MVP workflow not yet decided are marked TBD in the documents. The full vision and original architecture-layer list above remain intact.
 
+For CYB-12, the tenant-isolation foundation uses Go, chi, pgx/v5 with pgxpool, and golang-migrate over PostgreSQL RLS. This does not select an identity provider or first product workflow; both remain TBD.
+
+### CYB-12 setup and verification
+
+- As a database administrator, apply [`db/bootstrap_roles.sql`](db/bootstrap_roles.sql), then grant `cyber_runtime` to the application login and `cyber_migrator` to a separate migration login. Do not use a superuser or `BYPASSRLS` login for application requests.
+- From the repository root, set `MIGRATIONS_DATABASE_URL` to a PostgreSQL URL for the migration login and run `go run ./cmd/db-migrate up`. The `down` migration drops both tenant tables and their data.
+- Application code opens `DATABASE_URL` with `tenantdb.Open` and runs tenant-owned queries through `DB.WithTenantTx`. Trusted authentication middleware must set the verified identity context; this foundation does not implement an identity provider or tenant provisioning flow.
+- Run `go test ./...` for unit tests. To run the PostgreSQL integration suite, set `CYB12_TEST_DATABASE_URL` to an isolated disposable database URL with role-creation privileges. The integration suite creates roles/schema and fixture rows, and temporarily grants then revokes write access to exercise RLS policies.
+
 ## Product and architecture documents
 
 - [Product Requirements Document](docs/PRD.md)

@@ -28,7 +28,12 @@ The README identifies these logical layers; detailed boundaries and APIs are **T
 ### Tenancy and persistence
 
 - PostgreSQL Row-Level Security (RLS) is the tenant-isolation boundary for tenant data.
-- Application identity/role model, schema, policies, connection pooling behavior, migration process, and treatment of privileged database roles: **TBD**.
+- CYB-12 implementation uses Go with chi, pgx/v5 and pgxpool, golang-migrate, and PostgreSQL RLS.
+- The initial control-plane schema has `cyber.tenants` and `cyber.tenant_memberships`; `principal_id` is an opaque identity-provider-neutral value.
+- Tenant RLS policies use the transaction-local PostgreSQL setting `app.tenant_id`, set by the tenant database transaction helper only after trusted authentication middleware supplies the tenant identity.
+- Runtime database connections use the non-login `cyber_runtime` role; schema changes use the separate non-login `cyber_migrator` role. Neither role is superuser or has `BYPASSRLS`. Tenant tables use `FORCE ROW LEVEL SECURITY`.
+- Application pooling uses pgxpool. Schema changes use golang-migrate. The runtime role initially has read-only access to the tenant catalog and memberships; tenant and membership write workflows remain **TBD**.
+- Identity-provider selection and lifecycle, principal-to-membership authorization rules, tenant provisioning, database login provisioning, and hosting configuration remain **TBD**.
 
 ### Asynchronous processing
 

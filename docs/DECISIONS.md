@@ -37,3 +37,16 @@ The platform is cloud-first. The README describes a cybersecurity platform visio
 ## Open decisions
 
 See `ARCHITECTURE.md`, `SECURITY.md`, and `PRD.md` for TBD details. No additional provider, database beyond PostgreSQL, signing format, policy language, cloud, region, retention period, or numeric agent/rate limit is selected by this record.
+
+## CYB-12 implementation decisions
+
+The product owner confirmed the following implementation stack for CYB-12 on 2026-09-30. These choices implement the Architecture v2 PostgreSQL RLS decision and do not select a product workflow or identity provider:
+
+- Application language and HTTP router: Go and chi.
+- PostgreSQL driver and application pool: pgx/v5 and pgxpool.
+- Migration framework: golang-migrate.
+- Initial tenant schema: `cyber.tenants` and `cyber.tenant_memberships`. The membership `principal_id` is opaque text so the schema does not depend on a selected identity provider.
+- Tenant context: `app.tenant_id` set with transaction-local scope by the application tenant transaction helper.
+- Database roles: `cyber_runtime` and `cyber_migrator` are separate non-login roles without superuser or `BYPASSRLS`. Runtime access is initially SELECT-only; tenant/member provisioning is outside this issue.
+
+The identity provider, authentication flow, membership lifecycle and authorization semantics, tenant creation workflow, cloud/database login principals, and production migration secret provisioning remain **TBD**. See `ARCHITECTURE.md` and `SECURITY.md` for the implementation boundary.

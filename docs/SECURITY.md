@@ -18,9 +18,15 @@ This document records README principles and confirmed Architecture v2 security d
 ### Tenant isolation and authorization
 
 - PostgreSQL RLS is the tenant data isolation mechanism.
+- The CYB-12 database runtime role is non-login, non-superuser, and `NOBYPASSRLS`; tenant tables use `FORCE ROW LEVEL SECURITY`. The separate migration role is not used by application requests.
+- The application sets `app.tenant_id` with transaction-local scope through the pgxpool transaction helper. Pool connections are reset before and after tenant transactions; cleanup failure discards the connection.
+- `app.tenant_id` is trusted application context, not a signed database claim. A caller with arbitrary SQL access using the runtime credential could change it; the runtime credential therefore remains internal to trusted application code, and SQL injection protection is still required. RLS blocks unscoped and incorrectly tenant-filtered operations within the intended application boundary.
+- The chi tenant middleware accepts identity only from trusted authentication middleware context and ignores client-supplied tenant headers. Authentication, identity-provider choice, and membership authorization are not implemented by this foundation and remain **TBD**.
+- The database login principals that may assume `cyber_runtime` or `cyber_migrator` are provisioned separately. Superuser/BYPASSRLS credentials are not application credentials.
+- The initial runtime grants are SELECT-only for `tenants` and `tenant_memberships`; membership mutation and tenant-provisioning workflows remain **TBD**.
 - MCP invocation uses PEP → PDP → Tool authorization; a tool is invoked only after the PDP authorizes the request.
 - MCP tool inventory is a static, signed, version-locked registry.
-- Detailed identity lifecycle, user authorization, database roles/policies, policy definitions, deny behavior, and audit event schema: **TBD**.
+- Identity lifecycle, user-level authorization within a tenant, production membership/tenant write policy, policy definitions outside this RLS foundation, deny behavior beyond the middleware boundary, and audit event schema: **TBD**.
 
 ### Workload and sandbox isolation
 
