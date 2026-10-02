@@ -67,6 +67,13 @@ For CYB-12, the tenant-isolation foundation uses Go, chi, pgx/v5 with pgxpool, a
 
 ## Product and architecture documents
 
+The three CYB-13 pre-merge corrections (approval execution binding, scoped worker
+delegation, and audit secret redaction), their tests, and unresolved integration
+choices are documented in [CYB-13 security corrections](docs/CYB13_SECURITY_CORRECTIONS.md).
+The protected PEP uses the CYB-12 tenant transaction boundary. Production policy,
+approval/delegation repositories, tool adapters and identity integrations remain
+unselected; this change does not provide a running API or worker service.
+
 - [Product Requirements Document](docs/PRD.md)
 - [Architecture v2](docs/ARCHITECTURE.md)
 - [Security Architecture and Requirements](docs/SECURITY.md)

@@ -3,11 +3,13 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"cyber-ai-platform/internal/audit"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -27,19 +29,19 @@ func main() {
 
 	resolvedURL, err := migrationDatabaseURL(databaseURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "invalid MIGRATIONS_DATABASE_URL: %v\n", err)
+		reportError(os.Stderr, "invalid_database_url", err)
 		os.Exit(2)
 	}
 
 	location, err := migrationSourceURL("db/migrations")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "resolve migrations: %v\n", err)
+		reportError(os.Stderr, "resolve_migrations", err)
 		os.Exit(1)
 	}
 
 	instance, err := migrate.New(location, resolvedURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "open migrations: %v\n", err)
+		reportError(os.Stderr, "open_migrations", err)
 		os.Exit(1)
 	}
 	defer func() {
@@ -52,9 +54,16 @@ func main() {
 		err = instance.Down()
 	}
 	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		fmt.Fprintf(os.Stderr, "apply migrations: %v\n", err)
+		reportError(os.Stderr, "apply_migrations", err)
 		os.Exit(1)
 	}
+}
+
+// Dependency/URL errors may contain passwords or connection strings. Keep a
+// diagnostic stage but never stringify an error into a normal log sink.
+func reportError(sink io.Writer, stage string, err error) {
+	logger := audit.New(sink, "event", "stage", "error")
+	_ = logger.Emit(map[string]any{"event": "migration_failed", "stage": stage, "error": err})
 }
 
 func migrationDatabaseURL(raw string) (string, error) {
