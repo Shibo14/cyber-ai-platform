@@ -159,12 +159,14 @@ func secretField(key string) bool {
 		return -1
 	}, key)
 	for _, part := range []string{"password", "passwd", "pwd", "token", "bearer", "authorization", "apikey",
-		"secret", "cookie", "privatekey", "credential", "signingkey", "encryptionkey"} {
+		"secret", "cookie", "privatekey", "credential", "signingkey", "encryptionkey", "datakey", "wrappeddek", "plaintextdek"} {
 		if strings.Contains(normalized, part) {
 			return true
 		}
 	}
 	switch normalized {
+	case "dek", "kek":
+		return true
 	case "session", "sessionid", "authentication", "auth", "request", "httprequest", "config", "environment", "env", "claims",
 		"databaseurl", "databaseuri", "dsn", "connectionstring":
 		return true
