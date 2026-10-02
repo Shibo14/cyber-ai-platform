@@ -113,3 +113,21 @@ func TestSinkFailureDoesNotExposeRawError(t *testing.T) {
 		}
 	}
 }
+
+func TestEncryptionKeyFieldsAndCopiedValuesAreRedacted(t *testing.T) {
+	for _, field := range []string{"DEK", "KEK", "data_key", "plaintext-DEK", "wrapped_dek", "dataEncryptionKey"} {
+		t.Run(field, func(t *testing.T) {
+			var sink bytes.Buffer
+			logger := New(&sink, "metadata", "copied")
+			if err := logger.Emit(map[string]any{
+				"metadata": map[string]any{field: "test-key-material"},
+				"copied":   "prefix test-key-material suffix",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(sink.String(), "test-key-material") {
+				t.Fatal("encryption key material reached the audit sink")
+			}
+		})
+	}
+}

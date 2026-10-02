@@ -74,6 +74,10 @@ The protected PEP uses the CYB-12 tenant transaction boundary. Production policy
 approval/delegation repositories, tool adapters and identity integrations remain
 unselected; this change does not provide a running API or worker service.
 
+The provider-, algorithm- and serialization-neutral CYB-14 envelope core,
+tenant binding, protected preparation/final-execution integration, tests and
+open production decisions are described in [CYB-14 encryption core](docs/CYB14_ENCRYPTION_CORE.md).
+
 - [Product Requirements Document](docs/PRD.md)
 - [Architecture v2](docs/ARCHITECTURE.md)
 - [Security Architecture and Requirements](docs/SECURITY.md)
