@@ -78,6 +78,12 @@ The provider-, algorithm- and serialization-neutral CYB-14 envelope core,
 tenant binding, protected preparation/final-execution integration, tests and
 open production decisions are described in [CYB-14 encryption core](docs/CYB14_ENCRYPTION_CORE.md).
 
+The CYB-15 metadata-only queue core, Redis Streams/DLQ adapter, protected worker
+integration, retry/recovery tests and unresolved production policies are described
+in [CYB-15 queue foundation](docs/CYB15_QUEUE.md). The adapter requires injected
+server configuration and a durable progress store; it does not select topology,
+production outbox/idempotency/replay policy or a production Redis client.
+
 - [Product Requirements Document](docs/PRD.md)
 - [Architecture v2](docs/ARCHITECTURE.md)
 - [Security Architecture and Requirements](docs/SECURITY.md)
