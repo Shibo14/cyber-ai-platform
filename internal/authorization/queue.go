@@ -6,8 +6,8 @@ import (
 	"cyber-ai-platform/internal/tenantidentity"
 )
 
-// VerifyWorker checks the existing trusted workload-verification marker only.
-// It introduces no identity protocol and accepts no Redis/client identity.
+// VerifyWorker checks the trusted workload marker and, when supplied by a
+// transport adapter, its current validity guard. It accepts no Redis identity.
 // Queue transports use it before even poison-message or ACK-only handling;
 // per-job authority still requires ResolveWorker and protected execution.
 func (p *PEP) VerifyWorker(ctx context.Context) error {
@@ -17,6 +17,11 @@ func (p *PEP) VerifyWorker(ctx context.Context) error {
 	actor, ok := ctx.Value(actorKey{}).(verifiedActor)
 	if !ok || !actor.worker || !nonempty(string(actor.id)) {
 		return ErrDenied
+	}
+	if actor.check != nil {
+		if err := actor.check(ctx); err != nil {
+			return ErrDenied // transport errors and credentials never escape
+		}
 	}
 	return nil
 }
@@ -55,7 +60,10 @@ func (p *PEP) ResolveWorker(ctx context.Context, delegationID string) (WorkerReq
 	if err := p.authorize(trusted, d.Execution); err != nil {
 		return WorkerRequest{}, err
 	}
-	// A slow PDP must not turn an expired delegation into an ACK-only grant.
+	if err := p.VerifyWorker(ctx); err != nil {
+		return WorkerRequest{}, err
+	}
+	// Slow PDP/identity checks must not grant ACK-only access after expiry.
 	if !validDelegation(d, delegationID, d.Execution, p.now()) {
 		return WorkerRequest{}, ErrDenied
 	}
