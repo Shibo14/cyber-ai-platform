@@ -45,6 +45,11 @@ func (p *PEP) ExecuteWorkerPrepared(ctx context.Context, request WorkerRequest, 
 }
 
 func (p *PEP) prepared(ctx context.Context, e Execution, approvalID string, d *Delegation, preparation Preparation) error {
+	if d != nil {
+		if err := p.VerifyWorker(ctx); err != nil {
+			return err
+		}
+	}
 	if p.DB == nil || p.Approvals == nil || p.Audit == nil || preparation == nil {
 		return ErrDependency
 	}
@@ -76,6 +81,11 @@ func (p *PEP) prepared(ctx context.Context, e Execution, approvalID string, d *D
 	}
 	if ctx.Err() != nil {
 		return ErrDependency
+	}
+	if d != nil {
+		if err := p.VerifyWorker(ctx); err != nil {
+			return err
+		}
 	}
 	if !validPeriod(approval.IssuedAt, approval.ExpiresAt, p.now()) ||
 		(d != nil && !validDelegation(*d, d.ID, e, p.now())) {

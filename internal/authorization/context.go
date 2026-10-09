@@ -19,6 +19,7 @@ type actorKey struct{}
 type verifiedActor struct {
 	id     ActorPrincipal
 	worker bool
+	check  func(context.Context) error
 }
 
 // WithVerifiedActor is for trusted workload verification (SPIFFE/mTLS) or
@@ -29,8 +30,20 @@ func WithVerifiedActor(ctx context.Context, actor ActorPrincipal) context.Contex
 
 // WithVerifiedWorker marks a verified worker entry point. It cannot use the
 // direct human-request path to downgrade an operation without delegation.
+// This trusted in-process seam does not authenticate a certificate. Transport
+// adapters should use WithVerifiedWorkerCheck for current validity checks.
 func WithVerifiedWorker(ctx context.Context, actor ActorPrincipal) context.Context {
 	return context.WithValue(ctx, actorKey{}, verifiedActor{id: actor, worker: true})
+}
+
+// WithVerifiedWorkerCheck is trusted transport wiring only. The check must
+// revalidate the authenticated workload, never queue/client identity claims.
+// A nil check is denied, rather than downgrading to the legacy trusted marker.
+func WithVerifiedWorkerCheck(ctx context.Context, actor ActorPrincipal, check func(context.Context) error) context.Context {
+	if check == nil {
+		check = func(context.Context) error { return ErrDenied }
+	}
+	return context.WithValue(ctx, actorKey{}, verifiedActor{id: actor, worker: true, check: check})
 }
 
 // Operation is an exact tool operation, not a wildcard scope. The trusted tool

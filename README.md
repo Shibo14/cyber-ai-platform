@@ -84,6 +84,12 @@ in [CYB-15 queue foundation](docs/CYB15_QUEUE.md). The adapter requires injected
 server configuration and a durable progress store; it does not select topology,
 production outbox/idempotency/replay policy or a production Redis client.
 
+The CYB-16 neutral SPIFFE/mTLS transport verification, guarded worker context,
+source/lifecycle contracts and security tests are documented in
+[CYB-16 worker identity foundation](docs/CYB16_WORKER_IDENTITY.md). Issuer,
+production rotation/revocation, worker deployment and sandbox IMDS enforcement
+remain open production-readiness decisions.
+
 - [Product Requirements Document](docs/PRD.md)
 - [Architecture v2](docs/ARCHITECTURE.md)
 - [Security Architecture and Requirements](docs/SECURITY.md)

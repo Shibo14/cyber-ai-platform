@@ -88,6 +88,11 @@ func (p *PEP) now() time.Time {
 }
 
 func (p *PEP) authorize(ctx context.Context, e Execution) error {
+	if actor, ok := ctx.Value(actorKey{}).(verifiedActor); ok && actor.worker {
+		if err := p.VerifyWorker(ctx); err != nil {
+			return err
+		}
+	}
 	if p.Policy == nil {
 		return ErrDependency
 	}
@@ -124,6 +129,9 @@ func (p *PEP) ExecuteWorker(ctx context.Context, request WorkerRequest, tool Too
 }
 
 func (p *PEP) workerExecution(ctx context.Context, request WorkerRequest) (Delegation, error) {
+	if err := p.VerifyWorker(ctx); err != nil {
+		return Delegation{}, err
+	}
 	actor, ok := ctx.Value(actorKey{}).(verifiedActor)
 	if !ok || !actor.worker || !nonempty(string(actor.id)) || !nonempty(request.DelegationID) {
 		return Delegation{}, ErrDenied
@@ -149,6 +157,11 @@ func (p *PEP) workerExecution(ctx context.Context, request WorkerRequest) (Deleg
 }
 
 func (p *PEP) execute(ctx context.Context, e Execution, approvalID string, d *Delegation, tool Tool) error {
+	if d != nil {
+		if err := p.VerifyWorker(ctx); err != nil {
+			return err
+		}
+	}
 	if p.DB == nil || p.Approvals == nil || p.Audit == nil || tool == nil {
 		return ErrDependency
 	}
@@ -180,7 +193,12 @@ func (p *PEP) execute(ctx context.Context, e Execution, approvalID string, d *De
 		if !consumed {
 			return ErrDenied
 		}
-		// Recheck validity after a potentially blocking atomic consumption.
+		if d != nil {
+			if err := p.VerifyWorker(ctx); err != nil {
+				return err
+			}
+		}
+		// Recheck validity after potentially blocking consumption AND identity checks.
 		if !validPeriod(a.IssuedAt, a.ExpiresAt, p.now()) ||
 			(d != nil && !validPeriod(d.IssuedAt, d.ExpiresAt, p.now())) {
 			return ErrDenied
