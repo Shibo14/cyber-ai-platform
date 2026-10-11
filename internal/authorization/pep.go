@@ -57,6 +57,7 @@ type Tool interface {
 // PEP mediates protected operations only: there is no caller-controlled switch
 // to turn off approval or delegation. No identity/permission protocol is chosen.
 type PEP struct {
+	admission   Admission
 	Policy      PolicyEvaluator
 	DB          TenantBoundary
 	Approvals   ApprovalRepository
@@ -165,7 +166,38 @@ func (p *PEP) execute(ctx context.Context, e Execution, approvalID string, d *De
 	if p.DB == nil || p.Approvals == nil || p.Audit == nil || tool == nil {
 		return ErrDependency
 	}
+	if p.admission != nil {
+		// Preflight consumes nothing. Its transaction (including any approval or
+		// object row locks) MUST finish before remote accounting/audit starts.
+		if err := p.executionPreflight(ctx, e, approvalID, d, tool); err != nil {
+			return err
+		}
+		if err := p.admit(ctx, e, ExecutionStage); err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ErrDependency
+		}
+		// Slow admission cannot carry expired workload evidence into a new tx.
+		if d != nil {
+			if err := p.VerifyWorker(ctx); err != nil {
+				return err
+			}
+		}
+	}
 	err := p.DB.WithTenantTx(ctx, func(tx tenantdb.TenantTx) error {
+		if p.admission != nil && d != nil {
+			// Admission is not authority. Reload the authoritative delegation and
+			// reject deletion/replacement/rebinding during the unlocked interval.
+			fresh, err := p.workerExecution(ctx, WorkerRequest{DelegationID: d.ID,
+				Operation: e.Operation, CorrelationID: e.CorrelationID})
+			if err != nil {
+				return err
+			}
+			if fresh != *d || fresh.ApprovalID != approvalID {
+				return ErrDenied
+			}
+		}
 		// Queue admission never bypasses the execution-time PDP decision.
 		if err := p.authorize(ctx, e); err != nil {
 			return err

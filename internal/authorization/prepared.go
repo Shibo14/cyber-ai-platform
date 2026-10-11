@@ -91,6 +91,13 @@ func (p *PEP) prepared(ctx context.Context, e Execution, approvalID string, d *D
 		(d != nil && !validDelegation(*d, d.ID, e, p.now())) {
 		return ErrDenied
 	}
+	if err := p.admit(ctx, e, PreparationStage); err != nil {
+		return err
+	}
+	if !validPeriod(approval.IssuedAt, approval.ExpiresAt, p.now()) ||
+		(d != nil && !validDelegation(*d, d.ID, e, p.now())) {
+		return ErrDenied
+	}
 	tool, err := preparation.Prepare(ctx, e)
 	if err != nil {
 		return preparationError(err)
