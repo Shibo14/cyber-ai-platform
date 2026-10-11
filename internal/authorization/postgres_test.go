@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -228,6 +229,169 @@ func TestPostgresProtectedExecution(t *testing.T) {
 		}
 		if allowed != 1 {
 			t.Fatalf("successful concurrent executions = %d, want 1", allowed)
+		}
+		check(t, f, 1, true)
+	})
+	t.Run("ExecutionAdmissionOutsideTransactionAndLocks", func(t *testing.T) {
+		for _, mode := range []string{"success", "state changed", "approval consumed", "approval expired", "PDP revoked", "admission denied", "admission timeout", "execution rollback"} {
+			t.Run(mode, func(t *testing.T) {
+				f := seed(t)
+				var revoked atomic.Bool
+				f.p.Policy = policyFunc(func(context.Context, Execution) (Decision, error) {
+					return Decision{ActorAllowed: true, SubjectAllowed: !revoked.Load()}, nil
+				})
+				entered, release := make(chan struct{}), make(chan struct{})
+				var once sync.Once
+				unblock := func() { once.Do(func() { close(release) }) }
+				defer unblock()
+				gateCalls := 0
+				bound, err := BindAdmission(f.p, admissionFunc(func(c context.Context, _ Execution, stage AdmissionStage) error {
+					gateCalls++
+					if stage != ExecutionStage {
+						return ErrDenied
+					}
+					close(entered)
+					select {
+					case <-release:
+					case <-c.Done():
+						return c.Err()
+					}
+					if mode == "admission denied" {
+						return ErrDenied
+					}
+					if mode == "admission timeout" {
+						return context.DeadlineExceeded
+					}
+					return nil
+				}))
+				if err != nil {
+					t.Fatal(err)
+				}
+				done := make(chan error, 1)
+				go func() { done <- bound.Execute(f.ctx, f.request, sqlTool{failAfterWrite: mode == "execution rollback"}) }()
+				// Cleanup always joins the goroutine before fixtures are removed.
+				joined := false
+				defer func() {
+					unblock()
+					if !joined {
+						select {
+						case <-done:
+						case <-time.After(5 * time.Second):
+							t.Error("execution did not terminate")
+						}
+					}
+				}()
+				select {
+				case <-entered:
+				case err := <-done:
+					joined = true
+					t.Fatalf("admission never reached: %v", err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("admission did not start")
+				}
+				probeCtx, stop := context.WithTimeout(ctx, 3*time.Second)
+				defer stop()
+				var active int
+				if err := admin.QueryRow(probeCtx, `SELECT count(*) FROM pg_stat_activity
+					WHERE usename = 'cyb13_test_login' AND xact_start IS NOT NULL`).Scan(&active); err != nil {
+					t.Fatal(err)
+				}
+				if active != 0 {
+					t.Fatalf("slow limiter holds %d PostgreSQL transactions", active)
+				}
+				// Independent real connection obtains BOTH rows without waiting
+				// while admission is blocked. FOR UPDATE NOWAIT fails on any leak.
+				probe, err := admin.Begin(probeCtx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer probe.Rollback(context.Background())
+				var id string
+				if err := probe.QueryRow(probeCtx, `SELECT id FROM public.cyb13_test_approvals WHERE id=$1 FOR UPDATE NOWAIT`, f.request.ApprovalID).Scan(&id); err != nil {
+					t.Fatalf("approval row locked during admission: %v", err)
+				}
+				if err := probe.QueryRow(probeCtx, `SELECT resource_id FROM public.cyb13_test_objects WHERE resource_id=$1 FOR UPDATE NOWAIT`, f.request.Operation.ResourceID).Scan(&id); err != nil {
+					t.Fatalf("object row locked during admission: %v", err)
+				}
+				switch mode {
+				case "state changed":
+					_, err = probe.Exec(probeCtx, `UPDATE public.cyb13_test_objects SET resource_state='v2' WHERE resource_id=$1`, f.request.Operation.ResourceID)
+				case "approval consumed":
+					_, err = probe.Exec(probeCtx, `UPDATE public.cyb13_test_approvals SET consumed=true WHERE id=$1`, f.request.ApprovalID)
+				case "approval expired":
+					f.now = f.now.Add(time.Hour)
+				case "PDP revoked":
+					revoked.Store(true)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := probe.Commit(probeCtx); err != nil {
+					t.Fatal(err)
+				}
+				unblock()
+				select {
+				case err = <-done:
+					joined = true
+				case <-time.After(5 * time.Second):
+					t.Fatal("final execution stalled")
+				}
+				if gateCalls != 1 {
+					t.Fatalf("admission calls = %d", gateCalls)
+				}
+				if mode == "success" {
+					if err != nil {
+						t.Fatal(err)
+					}
+					check(t, f, 1, true)
+				} else {
+					if err == nil {
+						t.Fatal("stale/denied admission executed")
+					}
+					check(t, f, 0, mode == "approval consumed")
+				}
+			})
+		}
+	})
+	t.Run("ConcurrentAdmittedReplayConsumesOnce", func(t *testing.T) {
+		f := seed(t)
+		f.p.Policy = policyFunc(func(context.Context, Execution) (Decision, error) {
+			return Decision{ActorAllowed: true, SubjectAllowed: true}, nil
+		})
+		const count = 8
+		var arrivals atomic.Int32
+		release := make(chan struct{})
+		bound, err := BindAdmission(f.p, admissionFunc(func(c context.Context, _ Execution, _ AdmissionStage) error {
+			if arrivals.Add(1) == count {
+				close(release)
+			}
+			select {
+			case <-release:
+				return nil
+			case <-c.Done():
+				return c.Err()
+			}
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, cancel := context.WithTimeout(f.ctx, 5*time.Second)
+		defer cancel()
+		results := make(chan error, count)
+		for i := 0; i < count; i++ {
+			go func() { results <- bound.Execute(c, f.request, sqlTool{}) }()
+		}
+		allowed := 0
+		for i := 0; i < count; i++ {
+			err := <-results
+			if err == nil {
+				allowed++
+			} else if !errors.Is(err, ErrDenied) {
+				t.Error(err)
+			}
+		}
+		if allowed != 1 || arrivals.Load() != count {
+			t.Fatalf("allowed=%d admissions=%d", allowed, arrivals.Load())
 		}
 		check(t, f, 1, true)
 	})

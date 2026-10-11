@@ -90,6 +90,11 @@ source/lifecycle contracts and security tests are documented in
 production rotation/revocation, worker deployment and sandbox IMDS enforcement
 remain open production-readiness decisions.
 
+The CYB-17 validated audit event/read contracts and explicitly bound cost-admission
+core are documented in [CYB-17 audit and rate limiting](docs/CYB17_AUDIT_RATE_LIMITING.md).
+Production audit storage/integrity/PII policy, cost policy/accounting backend and
+entrypoint coverage remain unselected; the existing security boundaries are preserved.
+
 - [Product Requirements Document](docs/PRD.md)
 - [Architecture v2](docs/ARCHITECTURE.md)
 - [Security Architecture and Requirements](docs/SECURITY.md)
