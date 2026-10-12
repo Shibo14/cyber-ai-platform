@@ -1,0 +1,97 @@
+name: Go CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Go (${{ matrix.mode }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [normal, race]
+    env:
+      CGO_ENABLED: '1'
+      GOTOOLCHAIN: local
+      CYB12_TEST_DATABASE_URL: postgres://postgres:ci-test-only@127.0.0.1:5432/cyber_test?sslmode=disable
+      CYB15_TEST_REDIS_ADDRESS: 127.0.0.1:6379
+    services:
+      postgres:
+        image: postgres:16-bookworm
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-test-only
+          POSTGRES_DB: cyber_test
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cyber_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7.2-bookworm
+        ports:
+          - 127.0.0.1:6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check whitespace in working tree and submitted changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          git diff --check
+          if [[ -n "$BASE_SHA" && ! "$BASE_SHA" =~ ^0+$ ]]; then
+            git diff --check "$BASE_SHA" HEAD
+          else
+            git show --format= --check HEAD
+          fi
+      - name: Check test-result guard
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+      - name: Download and verify dependencies
+        run: |
+          go version
+          go mod download
+          go mod verify
+      - name: Bootstrap isolated PostgreSQL using CYB-12 tests
+        run: |
+          go test -json -count=1 ./internal/tenantdb | tee "$RUNNER_TEMP/bootstrap.jsonl"
+          python3 .github/scripts/check_go_tests.py --bootstrap "$RUNNER_TEMP/bootstrap.jsonl"
+      - name: Run complete regression suite with real PostgreSQL and Redis
+        env:
+          TEST_MODE: ${{ matrix.mode }}
+        run: |
+          flags=()
+          if [[ "$TEST_MODE" == race ]]; then flags+=(-race); fi
+          go test "${flags[@]}" -json -count=1 ./... | tee "$RUNNER_TEMP/tests.jsonl"
+          python3 .github/scripts/check_go_tests.py "$RUNNER_TEMP/tests.jsonl"
+      - name: Go vet
+        run: go vet ./...
